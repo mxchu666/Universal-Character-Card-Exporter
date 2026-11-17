@@ -124,6 +124,11 @@
       greeting: fields.greeting.join("\n\n"),
       altGreetings: fields.altGreetings,
       exampleDialogue: fields.exampleDialogue.join("\n\n"),
+      creatorNotes: card.creatorNotes || "",
+      systemPrompt: card.systemPrompt || "",
+      postHistoryInstructions: card.postHistoryInstructions || "",
+      characterVersion: card.characterVersion || "",
+      extensions: card.extensions && typeof card.extensions === "object" ? card.extensions : {},
       entries,
     };
   }
@@ -139,16 +144,26 @@
       c.entries.length > 0
         ? {
             name: c.name + " lorebook",
-            entries: c.entries.map((e, i) => ({
-              keys: e.keys || [],
-              content: e.content || "",
-              comment: e.comment || "",
-              enabled: true,
-              insertion_order: i,
-              constant: !!e.constant,
-              selective: e.selective !== false,
-              extensions: {},
-            })),
+            entries: c.entries.map((e, i) => {
+              const entry = {
+                id: i,
+                keys: e.keys || [],
+                secondary_keys: e.secondaryKeys || [],
+                comment: e.comment || "",
+                name: e.comment || "",
+                content: e.content || "",
+                enabled: e.enabled !== false,
+                insertion_order: Number.isFinite(e.insertionOrder) ? e.insertionOrder : i,
+                constant: !!e.constant,
+                selective: e.selective !== false,
+                position: e.position || "",
+                extensions: e.extensions && typeof e.extensions === "object" ? e.extensions : {},
+              };
+              if (Number.isFinite(e.priority)) entry.priority = e.priority;
+              if (Number.isFinite(e.probability)) entry.probability = e.probability;
+              if (e.caseSensitive) entry.case_sensitive = true;
+              return entry;
+            }),
           }
         : undefined;
     const data = {
@@ -158,15 +173,18 @@
       scenario: c.scenario,
       first_mes: c.greeting,
       mes_example: c.exampleDialogue,
-      creator_notes: "",
-      system_prompt: "",
-      post_history_instructions: "",
+      creator_notes: c.creatorNotes || "",
+      system_prompt: c.systemPrompt || "",
+      post_history_instructions: c.postHistoryInstructions || "",
       alternate_greetings: c.altGreetings || [],
       tags: c.tags || [],
       creator: c.creator || "",
-      character_version: "",
+      character_version: c.characterVersion || "",
       ...(picture ? { avatar: picture } : {}),
-      extensions: picture ? { avatar: picture } : {},
+      extensions: {
+        ...(c.extensions || {}),
+        ...(picture ? { avatar: picture } : {}),
+      },
       ...(book ? { character_book: book } : {}),
     };
     // V1 mirror. A V2/V3 reader ignores these keys; a V1 reader - Agnai's older
@@ -214,17 +232,43 @@
   function worldInfoEntries(sourceEntries) {
     const entries = {};
     sourceEntries.forEach((entry, index) => {
-      entries[index] = {
+      const ext = entry.extensions && typeof entry.extensions === "object" ? entry.extensions : {};
+      const out = {
         uid: index,
         key: entry.keys || [],
-        keysecondary: [],
+        keysecondary: entry.secondaryKeys || [],
         comment: entry.comment || "",
         content: entry.content || "",
         constant: !!entry.constant,
         selective: entry.selective !== false,
-        order: index,
-        disable: false,
+        order: Number.isFinite(entry.insertionOrder) ? entry.insertionOrder : index,
+        disable: entry.enabled === false,
+        addMemo: true,
+        excludeRecursion: false,
+        preventRecursion: false,
+        delayUntilRecursion: 0,
+        probability: Number.isFinite(entry.probability) ? entry.probability : 100,
+        useProbability: Number.isFinite(entry.probability),
+        depth: 4,
+        group: "",
+        scanDepth: null,
+        caseSensitive: !!entry.caseSensitive,
+        matchWholeWords: !!entry.wholeWords,
+        automationId: "",
+        role: null,
+        vectorized: false,
+        sticky: 0,
+        cooldown: 0,
+        delay: 0,
+        extensions: ext,
       };
+      if (entry.position === "before_char" || entry.position === "after_char") {
+        out.position = entry.position;
+      } else if (Number.isFinite(entry.position)) {
+        out.position = entry.position;
+      }
+      if (Number.isFinite(entry.priority)) out.order = entry.priority;
+      entries[index] = out;
     });
     return entries;
   }
@@ -282,8 +326,10 @@
               title: c.name + " lorebook",
               entries: c.entries.map((e) => ({
                 keys: e.keys || [],
+                secondary_keys: e.secondaryKeys || [],
                 name: e.comment || "",
                 content: e.content || "",
+                constant: !!e.constant,
               })),
             },
           ]

@@ -269,7 +269,7 @@
         const label = refs.length === 1 ? "lorebook" : "lorebooks";
         state.note =
           refs.length + " " + label + " found. Run Deep scan to include the entries.";
-      } else if (deep && card.failedLorebooks) {
+      } else if (deep && card.failedLorebooks && !card.note) {
         const label = card.failedLorebooks === 1 ? "lorebook" : "lorebooks";
         state.note =
           card.failedLorebooks + " " + label + " could not be read. Try the Deep scan again.";
@@ -370,6 +370,39 @@
     }
   }
 
+  async function saveChat() {
+    if (state.busy) return;
+    state.busy = true;
+    syncBusy();
+    setStatus("Reading chat...", "busy");
+    try {
+      const result = await NS.scraper.exportChat({
+        characterName: state.card && state.card.name,
+        onProgress: (message) => setStatus(message, "busy"),
+      });
+      const files = (result && result.files) || [];
+      if (!files.length) throw new Error("The chat export returned no files.");
+      files.forEach((file, index) => {
+        setTimeout(() => download(file.name, file.data, file.mime), index * 350);
+      });
+      setStatus(
+        "Chat saved - " +
+          result.messages.length +
+          " messages - " +
+          files.length +
+          " files - " +
+          version() +
+          ".",
+        "ok",
+      );
+    } catch (error) {
+      setStatus((error && (error.friendly || error.message)) || "Couldn't save the chat.", "err");
+    } finally {
+      state.busy = false;
+      syncBusy();
+    }
+  }
+
   function buildPanel() {
     const panel = el("section", {
       id: "jaix-panel",
@@ -441,6 +474,28 @@
       role: "status",
       "aria-live": "polite",
     });
+
+    // Character.ai's chat export is the CAI Tools "save chat" feature: it does
+    // not need a card scan, so it sits beside the scan buttons and reads the
+    // chat the browser already has open.
+    let chatButton = null;
+    if (NS.scraper && typeof NS.scraper.exportChat === "function") {
+      chatButton = el(
+        "button",
+        {
+          class: "jaix-btn jaix-btn--export",
+          type: "button",
+          onClick: () => saveChat(),
+        },
+        [
+          icon("download"),
+          el("span", { class: "jaix-btn-copy" }, [
+            el("span", { class: "jaix-btn-title", text: "Save chat" }),
+            el("span", { class: "jaix-btn-sub", text: "JSONL + JSON + MD + TXT + Ooba" }),
+          ]),
+        ],
+      );
+    }
     const scanSection = el("div", { class: "jaix-scan" }, [
       el("h2", {
         id: "jaix-panel-title",
@@ -452,6 +507,7 @@
         text: (NS.scraper && NS.scraper.hint) || "Quick gets the card. Deep also gets every linked lorebook.",
       }),
       el("div", { class: "jaix-scanrow" }, [quickButton, deepButton]),
+      ...(chatButton ? [chatButton] : []),
       status,
     ]);
 
@@ -589,7 +645,7 @@
       exportRow,
       exportCount,
       sepBtn,
-      scanButtons: [quickButton, deepButton],
+      scanButtons: chatButton ? [quickButton, deepButton, chatButton] : [quickButton, deepButton],
     };
     return panel;
   }

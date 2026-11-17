@@ -94,6 +94,37 @@ test("Character.ai URL forms both resolve the external id", () => {
   }
 });
 
+test("Character.ai tries the owned-character endpoint before the public one", async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  const hadChrome = Object.hasOwn(globalThis, "chrome");
+  const oldChrome = globalThis.chrome;
+  globalThis.chrome = undefined;
+  H.tokenHeader = () => "Token abc";
+  H.token = () => "abc";
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init && init.body });
+    if (/get_character$/.test(String(url))) {
+      return new Response(JSON.stringify({ character: [] }), { status: 200 });
+    }
+    return new Response(
+      JSON.stringify({ character: { name: "Mira", external_id: "x", description: "Keeps the light." } }),
+      { status: 200 },
+    );
+  };
+  try {
+    const out = await CAI.fetchCharacter("x");
+    assert.equal(out.character.name, "Mira");
+    assert.ok(calls[0].url.endsWith("/get_character"));
+    assert.ok(calls[1].url.endsWith("/get_character_info"));
+    assert.equal(JSON.parse(calls[0].body).external_id, "x");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (hadChrome) globalThis.chrome = oldChrome;
+    else delete globalThis.chrome;
+  }
+});
+
 test("Crushon keeps every card field a page payload can carry", () => {
   new Function("window", read("crushon.js"))(win);
   const R = win.JAIX.scraper;
@@ -189,4 +220,110 @@ test("tokenHeader keeps the scheme the page used", () => {
   const h = fake.JAIX.harvest;
   assert.equal(h.tokenHeader(), "Bearer abc.def.ghi");
   assert.equal(h.token(), "abc.def.ghi");
+});
+
+test("Character.ai chat export keeps the primary candidate and orders turns", () => {
+  const turns = [
+    {
+      turn_key: { turn_id: "t3" },
+      author: { is_human: true, name: "You" },
+      create_time: "2026-11-16T12:03:00.000Z",
+      primary_candidate_id: "c3",
+      candidates: [{ candidate_id: "c3", text: "Third." }],
+    },
+    {
+      turn_key: { turn_id: "t2" },
+      author: { is_human: false, name: "Mira" },
+      create_time: "2026-11-16T12:02:00.000Z",
+      primary_candidate_id: "c2",
+      candidates: [
+        { candidate_id: "c1", text: "Not shown." },
+        { candidate_id: "c2", text: "Second." },
+      ],
+    },
+    {
+      turn_key: { turn_id: "t1" },
+      author: { is_human: false, name: "Mira" },
+      create_time: "2026-11-16T12:01:00.000Z",
+      primary_candidate_id: "c0",
+      candidates: [{ candidate_id: "c0", text: "First." }],
+    },
+  ];
+  const messages = CAI.simplifyTurns(turns);
+  assert.deepEqual(messages.map((message) => message.mes), ["First.", "Second.", "Third."]);
+  assert.deepEqual(messages.map((message) => message.is_user), [false, false, true]);
+  assert.equal(messages[1].turn_id, "t2");
+});
+
+test("Character.ai chatFiles writes JSONL, JSON, Markdown and example dialogue", () => {
+  const messages = CAI.simplifyTurns([
+    {
+      turn_key: { turn_id: "t1" },
+      author: { is_human: false, name: "Mira" },
+      create_time: "2026-11-16T12:01:00.000Z",
+      primary_candidate_id: "c1",
+      candidates: [{ candidate_id: "c1", text: "You're late." }],
+    },
+  ]);
+  const files = CAI.chatFiles("chat-1", "Mira", messages);
+  assert.deepEqual(files.map((file) => file.name), [
+    "mira.chat.jsonl",
+    "mira.chat.json",
+    "mira.chat.md",
+    "mira.chat.txt",
+    "mira.chat.ooba.json",
+  ]);
+  const lines = files[0].data.split("\n");
+  const header = JSON.parse(lines[0]);
+  assert.equal(header.user_name, "You");
+  assert.equal(header.character_name, "Mira");
+  const line = JSON.parse(lines[1]);
+  assert.equal(line.name, "Mira");
+  assert.equal(line.is_user, false);
+  assert.equal(line.is_name, true);
+  assert.equal(line.mes, "You're late.");
+  assert.match(files[3].data, /\{\{char\}\}: You're late\./);
+  const ooba = JSON.parse(files[4].data);
+  assert.deepEqual(ooba.internal, []);
+});
+
+test("Character.ai chat export writes Oobabooga pairs from the first user turn", () => {
+  const messages = CAI.simplifyTurns([
+    {
+      turn_key: { turn_id: "t3" },
+      author: { is_human: false, name: "Mira" },
+      create_time: "2026-11-16T12:03:00.000Z",
+      primary_candidate_id: "c3",
+      candidates: [{ candidate_id: "c3", text: "Sit." }],
+    },
+    {
+      turn_key: { turn_id: "t2" },
+      author: { is_human: true, name: "You" },
+      create_time: "2026-11-16T12:02:00.000Z",
+      primary_candidate_id: "c2",
+      candidates: [{ candidate_id: "c2", text: "Sorry." }],
+    },
+    {
+      turn_key: { turn_id: "t1" },
+      author: { is_human: false, name: "Mira" },
+      create_time: "2026-11-16T12:01:00.000Z",
+      primary_candidate_id: "c1",
+      candidates: [{ candidate_id: "c1", text: "You're late." }],
+    },
+  ]);
+  const files = CAI.chatFiles("chat-2", "Mira", messages);
+  const ooba = JSON.parse(files[4].data);
+  assert.deepEqual(ooba.internal, [["Sorry.", "Sit."]]);
+  assert.deepEqual(ooba.data, [["Sorry.", "Sit."]]);
+});
+
+test("Character.ai chat URL resolves the chat id", () => {
+  const old = globalThis.location;
+  globalThis.location = { pathname: "/chat/abc123xyz", search: "?char=wVIz9V" };
+  try {
+    assert.equal(CAI.currentChatId(), "abc123xyz");
+  } finally {
+    if (old === undefined) delete globalThis.location;
+    else globalThis.location = old;
+  }
 });

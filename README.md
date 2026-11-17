@@ -2,9 +2,9 @@
 
 **English** · [Español](README.es.md) · [日本語](README.ja.md) · [Italiano](README.it.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
-A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai** or **Saucepan.ai** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
+A browser extension that reads a character from **JanitorAI**, **Emochi**, **Polybuzz**, **Character.ai**, **Crushon.ai**, **Saucepan.ai**, **Chub.ai**, **Venus.chub.ai** or **WyvernChat** and saves it as a portable character card, so you can back it up or move it to another frontend. No account, no build step, no server. It runs in your own browser, on your own session.
 
-**New in 0.11.2:** a portrait now survives a dead service worker - the image is fetched through the extension worker, then loaded directly if that fails - and any failure to get it is printed with its reason instead of silently drawing the initials tile. The Character.ai trail names what each endpoint returned. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
+**New in 0.12.0:** Chub.ai, Venus.chub.ai and WyvernChat readers, the JanitorAI definition recovered from the page's own double-encoded hydration store, Character.ai **Save chat** (Tavern JSONL, JSON, Markdown, example dialogue and an Oobabooga pair file), and full V2/V3 card fields including `character_book` entry options. The PNG path was rebuilt and parsed back in a real browser: `chara` + `ccv3`, both before `IDAT`, portrait intact. Full detail in the [changelog](CHANGELOG.md) and in the [devlog](#devlog).
 
 > Free and open source. If you find it useful and want to support the original work, check out [inkwell.rip](https://inkwell.rip). That is what keeps tools like this coming.
 
@@ -18,6 +18,8 @@ This project is a **fork** of **[Character Card Extractor / JAI Card Extractor](
 
 This fork is maintained by **[mxchu666](https://github.com/mxchu666)**. It adds Emochi and Polybuzz support, the multi-site card pipeline, and the documentation you are reading.
 
+**The Character.ai chat export follows [CAI Tools](https://github.com/irsat000/CAI-Tools)** by **[İrşat (irsat000)](https://github.com/irsat000)**, the extension that established the practical shape of Character.ai chat saving. CAI Tools was used as a feature and endpoint reference; no code was copied. Its replacement chat page, background/font/memory managers, library and character search are deliberately not part of an exporter, so they are not reproduced here.
+
 **How this fork was made.** The code was written with **OpenCode** running **DeepSeek v4.1-flash:free**. Every prompt I supplied to the agent was written in Spanish and I translated all of them into English myself, by hand, before feeding them in. The findings, the probes and the API notes in the developer section are the result of that work, verified against the live sites.
 
 ---
@@ -29,8 +31,11 @@ This fork is maintained by **[mxchu666](https://github.com/mxchu666)**. It adds 
 | SillyTavern character card | `.card.json` | SillyTavern, Tavo, Agnai, RisuAI, Inkwell, Chub — V2/V3 readers read `data`, older importers read the flat V1 fields in the same file |
 | Character card as PNG | `.png` | SillyTavern, Tavo, Chub, RisuAI, Agnai. The only container that carries the portrait *and* the card in one file |
 | Lorebook / World Info | `.lorebook.json` | SillyTavern, Tavo |
+| Character.ai chat | `.chat.jsonl`, `.chat.json`, `.chat.md`, `.chat.txt`, `.chat.ooba.json` | SillyTavern (JSONL), text-generation-webui (Ooba), any text reader (Markdown and example dialogue) |
 | JanitorAI JSON | `.jai.json` | Closest to the original record |
 | Plain text | `.txt` | Anything that reads text — the only route into platforms with no card importer (Character.ai, Crushon, Polybuzz, Emochi) |
+
+The chat files are offered only on a Character.ai chat page, because that is the only site whose chat log this extension reads. **Save chat** downloads all five at once; you do not have to pick a format on the page.
 
 When the target accepts a card at all, send the PNG. A JSON card has no image field in any spec version; a PNG does.
 
@@ -48,8 +53,11 @@ site page
    ├─ src/scraper.js    reads JanitorAI
    ├─ src/emochi.js     reads Emochi (character pages and the Lab)
    ├─ src/polybuzz.js   reads Polybuzz
-   ├─ src/cai.js        reads Character.ai
+   ├─ src/cai.js        reads Character.ai + exports chats
    ├─ src/crushon.js    reads Crushon.ai
+   ├─ src/saucepan.js   reads Saucepan.ai
+   ├─ src/chub.js       reads Chub.ai + Venus.chub.ai
+   ├─ src/wyvern.js     reads WyvernChat
    │       ▲
    │       └─ src/intercept.js + src/harvest.js
    │          (sites that only hand the record to their own client)
@@ -59,13 +67,14 @@ site page
      { name, creator, avatarUrl, gender, tags,
        fields: { description, personality, scenario,
                  greeting, altGreetings, exampleDialogue },
-       lorebooks[], scriptRefs[] }
+       creatorNotes, systemPrompt, postHistoryInstructions,
+       extensions, lorebooks[], scriptRefs[] }
            │
            ├─ src/exporters.js  ──▶ .card.json / .png / .lorebook.json / .jai.json / .txt
            └─ src/panel.js      ──▶ the on-page UI: block list, checkboxes, export row
 ```
 
-1. **Read.** The reader for the site you are on gathers the character. Each one does it differently, because each site exposes a different surface: JanitorAI has an internal JSON API, Emochi has a Next.js backend with a compiled prompt string, Polybuzz has a server-rendered Nuxt payload plus a REST API, and Character.ai and Crushon.ai only hand the record to their own page — so for those two the extension sniffs what the page already fetched instead of asking for it.
+1. **Read.** The reader for the site you are on gathers the character. Each one does it differently, because each site exposes a different surface: JanitorAI has an internal JSON API plus a hydration store in the page, Emochi has a Next.js backend with a compiled prompt string, Polybuzz has a server-rendered Nuxt payload plus a REST API, Chub and Wyvern publish Tavern-shaped records from their own APIs, and Character.ai and Crushon.ai only hand the record to their own page — so for those two the extension sniffs what the page already fetched instead of asking for it.
 2. **Normalise.** The raw record is flattened into the card object above. This is where field names from the other site get translated: Polybuzz's `sceneBrief` becomes `description`, `speechText` becomes `greeting`, `templateIntro` becomes `scenario`. Nothing is invented. If a field is not published, it stays empty.
 3. **Present.** The panel lists every block it found with a checkbox and a preview, so you can drop a jailbreak line or a system prompt that got bundled in. The count at the top (`x/y kept`) tells you exactly what will be written.
 4. **Export.** `toBlocks()` turns the ticked blocks into the target format. The exporter is site-agnostic: it has never heard of Emochi or Polybuzz, it only knows the card object. That is why every site gets all five formats for free.
@@ -152,6 +161,22 @@ When the page has not made the call yet — a cold load of a profile URL is rend
 
 **Fixed in 0.9.1.** Two faults made this fail on a real page (`character.ai/character/piNpVEtc`): the reader rebuilt the auth scheme as `Token` after stripping whatever the page used, so a `Bearer` session was rejected; and the worker transport sent no cookies, so Cloudflare answered 403. The header is now carried through untouched and every transport carries cookies. Detail in the [changelog](CHANGELOG.md).
 
+#### Save chat (the CAI Tools export path)
+
+Open a chat (`character.ai/chat/...`), let it load, and click **Save chat**. The button is there only on a chat page. It downloads five files:
+
+| File | What it is | Where it goes |
+|---|---|---|
+| `<name>.chat.jsonl` | Tavern chat: a metadata line first, then `{name, is_user, is_system, is_name, send_date, mes}` per message | SillyTavern → **Chat history** import |
+| `<name>.chat.json` | The same conversation plus `chat_id`, character, source and export time | Archival, or your own scripts |
+| `<name>.chat.md` | A readable transcript with one heading per speaker | Reading, sharing, printing |
+| `<name>.chat.txt` | `<START>` followed by `{{user}}:` / `{{char}}:` lines | A card's example-dialogue block |
+| `<name>.chat.ooba.json` | `{internal, visible, data, data_visible}` pairs, starting at the first user turn | text-generation-webui |
+
+The turns endpoint returns newest first and pages with `meta.next_token`. The reader follows it to the end, takes the reply named by `primary_candidate_id` — the one that was actually on screen — and sorts oldest first. If a chat is long, the status line counts turns as it pages.
+
+**What CAI Tools does that this does not.** CAI Tools also replaces the Character.ai chat UI, manages backgrounds, fonts, memory pins, avatars and a card/library/search system, and renders PDF chat logs with jsPDF. Those are either UI features or depend on bundled libraries, so they are outside an exporter that must stay dependency-free. The export-relevant half — character fields, greetings, avatar, chat download in transferable formats — is ported. Markdown prints to PDF from any browser if a PDF is what you need.
+
 ### Crushon.ai
 
 1. Open a character on [crushon.ai](https://crushon.ai) (`crushon.ai/character/...`).
@@ -187,6 +212,53 @@ Crushon is fully client-rendered, so the reader reads the record the page itself
 
 **Companions you own** are read through `GET /api/v1/companion/editable`, which returns the raw editor record: Core text, example dialogue, advanced prompt, formatting instructions and every starting scenario regardless of its access level. Ownership is detected per scan, so your own bots come back complete even with Definition Visibility closed.
 
+### Chub.ai and Venus.chub.ai
+
+1. Open a character on [chub.ai](https://chub.ai) or [venus.chub.ai](https://venus.chub.ai) (`/characters/creator/name`). Signed in is not required for a public card, but it is required for anything private.
+2. Click **Extract card** → **Quick scan**. **Deep scan** adds the embedded lorebook and every lorebook linked to the character.
+3. Export.
+
+Chub is the easiest site here, because it already stores Tavern cards. The mapping is almost one to one:
+
+| Card field | Chub source |
+|---|---|
+| Name, creator, avatar, tags | `node.definition.name`, the first segment of `node.fullPath`, `definition.avatar`, `node.topics` |
+| Description | `definition.description` — the creator's notes box |
+| Personality | `definition.personality`, plus `definition.tavern_personality` when it is not an exact echo |
+| Scenario, greeting, alternate greetings | `definition.scenario`, `definition.first_message`, `definition.alternate_greetings` |
+| Example dialogue | `definition.example_dialogs` |
+| System prompt, post-history instructions | `definition.system_prompt`, `definition.post_history_instructions` |
+| Lorebooks | `definition.embedded_lorebook`, then every positive id in `related_lorebooks` |
+
+**Why the worker is used.** `api.chub.ai/api/characters/...` does not send `Access-Control-Allow-Origin`, so a page-context fetch is refused even though the API is public. The extension's service worker is not CORS-bound and holds the `api.chub.ai` host permission, so it performs that one read. The lorebook endpoint does send `*`, so either transport works there.
+
+**Duplicates are dropped by content, not by id.** A character can embed a book and also list the same book as related. Every entry is reduced to `keys + content`; a linked book whose signature is identical to the embedded one is skipped. `-1` is a sentinel in `related_lorebooks`, not a book id.
+
+**Venus is the same site behind another host.** Venus.chub.ai serves the same SPA, the same paths and the same API, so one reader and one set of permissions cover both. The panel names which host it read.
+
+### WyvernChat
+
+1. Open a character on [app.wyvern.chat](https://app.wyvern.chat) (`/profiles/creator/characters/name`).
+2. Click **Extract card** → **Quick scan**. **Deep scan** adds every lorebook attached to the character.
+3. Export.
+
+| Card field | WyvernChat source |
+|---|---|
+| Name, creator, avatar, tags | the character record; `creator.vanityUrl`, then `displayName` |
+| Description | `description`, then `visual_description` when it is not already repeated |
+| Personality, scenario, greeting | `personality`, `scenario`, `first_mes` |
+| Alternate greetings | `alternate_greetings`, plus advanced `greetings` that are not the `default` entry |
+| Example dialogue | `mes_example` |
+| System prompt | `pre_history_instructions` — the editor calls it **System Prompt** |
+| Post-history instructions | `post_history_instructions` — the editor calls it **Final Instructions** |
+| Character note | `character_note`, carried in `extensions.depth_prompt` at depth 4 |
+| Creator notes | `creator_notes` — the **Long Description**; may contain HTML by design |
+| Lorebooks | `GET /api/lorebooks/character/{id}` |
+
+**Custom slugs are resolved from the page.** A Wyvern URL may use the internal id (`_Ytaz4tYBerdx7zPzp14VD`) or a creator-chosen name (`eveline`). The API only resolves the id; asking it for the custom name returns 404. For a custom slug the reader parses the server-rendered Next.js flight payload, takes the record's `id`, and then calls the API. The same payload is the fallback record when the API refuses.
+
+**Mapping follows Wyvern's own exporter.** Its bundle contains a V2 card writer. That writer maps `pre_history_instructions` to `system_prompt` and `character_note` to `extensions.depth_prompt.prompt`; this reader does the same. `creator_notes` is exported verbatim, even when a creator has filled it with a complete HTML profile page, because that is what Wyvern's own download does.
+
 ---
 
 ## Tavo: why a card arrived without its picture
@@ -199,19 +271,21 @@ Three faults, closed in 0.11.0 and 0.11.1.
 
 **The JSON is now two formats in one file.** A V2/V3 reader reads `data`; an older reader — Agnai's import, Pygmalion, the Gradio card loaders — ignores `data` and reads flat `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example`. Both shapes ship in the same JSON, plus the portrait as a base64 data URI in `avatar`, `data.avatar` and `data.extensions.avatar`. The V2/V3 spec has no image field, so Tavo's own JSON import may still leave the portrait picker empty; the PNG is the route that carries picture and card as one file.
 
+**Which avatar field Tavo reads — answered in 0.12.0.** Tavo's documented character object exposes `avatar` (an image URL or path), and `tavo.character.import(card)` accepts either a complete `{spec:"chara_card_v3",data:{…}}` wrapper or a bare `data` object. The 1.9.0 APK was unpacked and its `libapp.so` searched: it contains `chara_card_v2`, `chara_card_v3`, `ccv3`, `creator_notes`, `mes_example`, `alternate_greetings`, `first_mes`, `character_book` and `extensions.`, but **no `avatar_url`**. So `data.avatar` is the JSON slot Tavo can read; `data.extensions.avatar` and the top-level `avatar` are written for other readers, not because Tavo needs them. The import dialog is still the final authority: if your Tavo build ignores a data URI there, import the PNG, where the picture is the file itself.
+
 ### If a reader still says "no PNG metadata"
 
 The panel now tells you what it built. The footer shows the running version, and the status line after a PNG export lists the text chunks in the file:
 
 ```
-PNG saved - chara + ccv3 - 486 KB - v0.11.1.
+PNG saved - chara + ccv3 - 486 KB - v0.12.0.
 ```
 
 If that line lists both keywords, the file is right and the reader is looking somewhere else. If it does not, the export itself failed. The size is there so the file on disk can be matched against the file the panel just built; `- initials tile` means the portrait could not be fetched and the gradient tile was drawn instead.
 
 The file in the report that prompted this section was checked byte by byte: one `tEXt` chunk, keyword `chara`, placed before `IDAT`, a valid CRC, and no `avatar` key in its JSON. That is the 0.10.0 signature. The 0.11.x exporter always writes two chunks and an `avatar` field. So before anything else:
 
-1. **Check the footer says `v0.11.1`.** If it says `v0.10.x`, the browser is running the old build.
+1. **Check the footer says `v0.12.0`.** If it says `v0.10.x` or `v0.11.x`, the browser is running an old build.
 2. **Re-enable the extension, then reload the tab.** Chrome disables an unpacked extension once when its permissions change, and a tab that was already open keeps the old content script until it is reloaded. Exporting from that tab produces an old file with a new filename, which is exactly what a "still failing" report looks like.
 3. **Re-export.** Files already on disk keep their old bytes. Download the PNG again after the reload.
 
@@ -275,11 +349,14 @@ A short record, because the shape of the process explains why the limits above a
 6. **Enumerate the API, do not guess it.** The site's JavaScript bundle declares 214 request configs. Every read-only one was called against public bots. This is how the "background is unreachable" conclusion was reached — not by failing once, but by exhausting the surface.
 7. **Prove the negative with a control.** The `ZZZ-123` experiment, run on two accounts, is what turned "we cannot find it" into "it is not there to be found".
 8. **Keep the panel quiet.** A missing creator-private field is the normal case, not an error. The panel shows a footnote, not a banner. Only a genuine failure (signed out, no route answered) gets a message.
-9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 92 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
+9. **Test everything that can be tested.** `node --test` covers the readers, the normaliser, the exporters and the block builder. 137 tests at the time of writing. Every API claim in this README was verified against the live site, and the ones that could not be verified are labelled as such.
 10. **Write it down.** The developer section below exists so the next person does not have to re-derive it.
 11. **Reuse before writing.** Character.ai and Crushon.ai both only give the record to their own JavaScript, so one mechanism covers both: a page-world sniffer plus a scoring walk over the payloads. One new file each, plus two shared ones, and the exporters were not touched.
 12. **Credit the source of an approach.** The interception pattern comes from [taquanta's exporter](https://github.com/taquanta/character-ai-to-crushon-ai-card-exporter), and the credit sits at the top of the file and in this README, not only in a commit message.
 13. **Say what is not verified.** Both new sites answer Cloudflare `403` to a machine without a browser, so the contracts are documented and the live read is not. That is written down in three places rather than glossed over.
+14. **Read the site's own exporter when it has one.** Wyvern ships a V2 card writer in its bundle. Extracting it settled `pre_history_instructions` → `system_prompt`, `character_note` → `extensions.depth_prompt`, and `creator_notes` as a Long Description. A field mapping copied from the product's own code beats one inferred from the UI.
+15. **Do not assume the API is the whole record.** JanitorAI writes the same character into the page as `window.mbxM.push(JSON.parse("…"))`, a JSON string inside a JSON document. The API said the definition was null; the page carried the record. Parsing the hydration script was the difference between a summary and a card.
+16. **Port features, not code.** CAI Tools defined the practical chat formats; the reader writes them from its own code, keeps the no-dependency rule, and says which CAI Tools features are UI and therefore out of scope.
 
 **This tool is under active development and will keep receiving updates.** New sites get added, broken readers get fixed, and the API notes get corrected when a site changes. If something breaks, it is usually because a site changed its payload shape, and that is fixable.
 
@@ -288,6 +365,20 @@ A short record, because the shape of the process explains why the limits above a
 ## Devlog
 
 The record of how each release was actually reached: what was tried, what failed, and what the failure taught. Newest first. The short version is in the [changelog](CHANGELOG.md); this is the long one.
+
+### 0.12.0 — three sites, a hydration store, and the export half of CAI Tools
+
+**Chub was the first site that did not need a translator.** Its character API returns a `definition` object whose keys are already Tavern's: `description`, `personality`, `scenario`, `first_message`, `alternate_greetings`, `example_dialogs`, `system_prompt`, `post_history_instructions`, `tavern_personality`, `embedded_lorebook`. The work was not mapping fields; it was finding the transport. The character endpoint sends no `Access-Control-Allow-Origin`, so a page fetch dies even though the API is public. The worker already existed for Emochi and Polybuzz, so the read moved there under an `api.chub.ai` host permission. Lorebooks were the second question: `related_lorebooks` carries ids, `-1` is a sentinel, and a book can be both embedded and linked. Reducing each book to a `keys + content` signature and dropping exact repeats was enough; no id list was trusted.
+
+**Wyvern looked like a custom-slug problem and turned out to be a payload problem.** `/api/characters/{id}` is clean, but the site's URLs use a creator-chosen slug, and `eveline` is not an id. The API 404s on the name. The page, however, server-renders the whole record into a Next.js flight payload. Parsing the payload's `self.__next_f.push` chunks and brace-matching the record gives both the id and a fallback. Then the bundle answered the field-mapping question better than guessing could: Wyvern ships its own V2 writer, and that writer says `system_prompt: e.pre_history_instructions`, `post_history_instructions: e.post_history_instructions`, `creator_notes: e.creator_notes`, and `depth_prompt.prompt: e.character_note`. Two 0.12.0 bugs were caught by reading it: the first reader dropped the 935-character System Prompt because it looked at `system_prompt` instead, and it treated advanced `greetings` objects as strings. Both are fixed, and the tests use the site's own field names.
+
+**JanitorAI's definition was not missing; it was escaped.** The API still answers `personality: null` and `showdefinition: true` to an anonymous caller, which reads like a contradiction until the page is inspected. The Vite app hydrates its stores with `window.mbxM.push(JSON.parse("{\"SJ--a:a-a--characterStore\":{…}}"))` — a JSON string literal that contains a JSON document. The old page reader searched for decoded `{"id":…}` and found nothing. `scriptPayloads()` now parses the literal, then parses the result, and the scoring walk finds the character object inside the store. The same payload will carry the definition for a signed-in reader, because that is the copy the server rendered for that session. The anonymous record is still a summary, and the panel now says so precisely: the creator marked the definition public, but this session did not receive it. That is a different message from "the creator hid it", and the difference matters in a bug report.
+
+**CAI Tools was taken apart, not copied.** Its chat exporter defines five formats: readable, Tavern JSONL, Oobabooga JSON, definition text and PDF. The first four fit the no-dependency rule. The Tavern file needed its metadata header and `is_name`; the Oobabooga file needed pair merging and a start at the first user turn. Both are now produced, alongside a JSON archive, Markdown and the example dialogue. PDF was left out on purpose: CAI Tools' PDF uses jsPDF and avatars, and a faithful Unicode PDF without a bundled font is not possible here. The Markdown file prints to PDF from the browser instead. The rest of CAI Tools — chat page replacement, backgrounds, fonts, memory pins, library, search — is not an exporter and is not reproduced.
+
+**The PNG was tested in the browser, not only in Node.** A live JanitorAI record was read, given a lorebook entry, drawn to a 512×512 tile with its real portrait, and written as a PNG. The file was then parsed back: `IHDR, tEXt (chara), tEXt (ccv3), IDAT…`; both base64 chunks decoded to valid V2/V3 JSON with the book entry; the portrait transport reported `cors`, not the initials fallback. That is the end-to-end proof the unit tests cannot give: canvas, `btoa`, `TextEncoder`, CRCs and chunk placement all in the same browser that will run the extension.
+
+**What is still not verified.** Signed-in JanitorAI, Character.ai and Crushon.ai reads remain out of reach: the hosts answer Cloudflare 403 to the machine this was built on, and the in-app browser has no account session. The contracts are documented; the live signed-in read is not. Chub, Venus's API, Wyvern's id and custom slugs, JanitorAI's anonymous read and the page hydration recovery were all exercised against the live sites.
 
 ### 0.11.2 — the portrait that only existed in the panel
 
@@ -418,6 +509,7 @@ Short version:
 
 | Version | What landed |
 |---|---|
+| 0.12.0 | Chub.ai, Venus.chub.ai and WyvernChat readers; JanitorAI definition recovery from the page hydration store; Character.ai **Save chat** (Tavern JSONL, JSON, Markdown, example dialogue, Oobabooga); full `character_book` entries and card extensions; PNG verified in a real browser; 137 tests |
 | 0.11.2 | Portraits survive a dead service worker (worker, then a direct CORS load), failures are named instead of silent, Character.ai trail says what each endpoint returned; 111 tests |
 | 0.11.1 | Panel shows the running version and the PNG chunks it wrote, JSON carries the V1 flat fields too; 107 tests |
 | 0.11.0 | PNG cards carry `chara` + `ccv3`, portraits fetched through the worker so a CORS-less CDN stops producing initials, JSON embeds the portrait as a data URI; 106 tests |
@@ -443,10 +535,12 @@ Short version:
 - [x] **Priority — Emochi: example conversations are not being retrieved.** Fixed in 0.9.0. `characterExampleConversation` arrives as an array of turns, and string coercion turned it into `""`. It is now parsed as turns.
 - [x] **Emochi Lab support.** Story, Soundstage and LiveRoom URLs are read against the same prompt record, with the trailing path segment taken as the id. The signed-out session never exposed the Lab's own URL shape, so a surface using a different record type reports the failed route instead of returning half a card.
 - [x] **Saucepan AI support.** Done in 0.10.0. Public companions export with the Description and any public starting message; the definition and the lorebooks need a signed-in session, and the definition also needs the creator's Definition Visibility switch. The definition and editable routes are documented from the client code that consumes them, not from a signed-in call — if either comes back empty for you, an issue with the panel message is exactly what is needed.
-- [ ] **Tavo JSON import: confirm which avatar field it reads.** The PNG path is verified end to end — both `chara` and `ccv3` chunks, real chunk CRCs, the portrait drawn from worker-fetched bytes. The JSON carries the portrait as a data URI at `avatar`, `data.avatar` and `data.extensions.avatar`; which of those Tavo's own importer reads is unconfirmed, so the PNG stays the documented route when the picture matters.
-- [ ] **WyvernChat.com support.**
+- [x] **Tavo JSON import: confirm which avatar field it reads.** Answered in 0.12.0. Tavo's character object exposes `avatar` (URL or path), its importer takes a full CCv3 wrapper or a bare `data` object, and its 1.9.0 APK contains no `avatar_url` string. The JSON writes the portrait at `avatar`, `data.avatar` and `data.extensions.avatar`; the PNG remains the documented route when the picture must arrive with the card.
+- [x] **WyvernChat.com support.** Done in 0.12.0. Id slugs and custom slugs both resolve, lorebooks are read on Deep scan, and field mapping follows Wyvern's own V2 exporter (`pre_history_instructions` → `system_prompt`, `character_note` → `extensions.depth_prompt`).
 - [ ] **Verify the Character.ai and Crushon.ai readers against a signed-in session.** Both hosts answer Cloudflare `403` to the machine this release was built on, so the contracts are verified but the live read is not. If either reader fails for you, an issue with the panel message is exactly what is needed.
-- [ ] **Chub.ai and Venus.chub.ai support.**
+- [x] **Chub.ai and Venus.chub.ai support.** Done in 0.12.0. The character read goes through the extension worker because the endpoint has no CORS header; Venus serves the same SPA and API. Deep scan reads embedded and linked lorebooks and drops exact duplicates.
+- [x] **PNG metadata carrying the full definition for any platform.** Done and re-verified in 0.12.0: `chara` (V2) and `ccv3` (V3) `tEXt` chunks, both immediately after `IHDR` and before `IDAT`, valid CRCs, full card JSON including `character_book`; a real Chromium build produced and parsed back a 1.14 MB card.
+- [x] **Port the export features of CAI Tools.** Done in 0.12.0 for the Character.ai path: definition/greetings/categories/avatar mapping and chat export as Tavern JSONL, JSON, Markdown, example dialogue and Oobabooga pairs. CAI Tools' chat-UI replacement, backgrounds, fonts, memory manager, library, search and jsPDF output are UI/dependency features and stay out of scope.
 
 A reader that half-works on a supported site is worse than one more site that works fully, which is why the two Emochi items sat above new site support until they were closed.
 
@@ -474,8 +568,8 @@ Site terms may still restrict automated access. Use it for your own characters a
 ## Privacy
 
 - Scanned character data never leaves your browser. No analytics, no outside code.
-- No special permissions. The extension runs only on the site pages you open.
-- The only network calls it makes are to the site you are already on.
+- Host permissions are limited to the sites in the manifest, their API hosts and their portrait CDNs; there is no `<all_urls>` grant.
+- The only network calls it makes are to the site you are already on, that site's own API, and its portrait host.
 
 ---
 
@@ -487,11 +581,20 @@ The extension is plain JavaScript with no dependencies and no build step. Edit `
 node --test
 ```
 
-`src/scraper.js` reads JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz, `src/cai.js` Character.ai and `src/crushon.js` Crushon.ai. All five fill the same card shape, so exporters and the panel never care which site you are on. `src/exporters.js` converts, `src/panel.js` and `src/panel.css` are the on-page panel, `background.js` is the service worker used for requests a content script cannot make (CORS, forbidden headers).
+`src/scraper.js` reads JanitorAI, `src/emochi.js` Emochi, `src/polybuzz.js` Polybuzz, `src/cai.js` Character.ai, `src/crushon.js` Crushon.ai, `src/saucepan.js` Saucepan.ai, `src/chub.js` Chub.ai/Venus.chub.ai and `src/wyvern.js` WyvernChat. All eight fill the same card shape, so exporters and the panel never care which site you are on. `src/exporters.js` converts, `src/panel.js` and `src/panel.css` are the on-page panel, `background.js` is the service worker used for requests a content script cannot make (CORS, forbidden headers).
 
 Two files exist only for the sites that never publish their record to an API: `src/intercept.js` runs in the page's own world (`world: "MAIN"`, `document_start`) and copies what the page already knows into the DOM; `src/harvest.js` collects those payloads and scores every object in them against a list of known field names. Adding a third gated site means one file that names its field keys.
 
 The rest of this section is the site-by-site API record. It is kept in English because it is reference material, and it is the part most likely to go stale when a site ships a change.
+
+### JanitorAI API notes
+
+- `GET https://janitorai.com/hampter/characters/{uuid}` is the public record. Live keys include `allow_proxy`, `showdefinition`, `showDefinitionOverride`, `personality`, `scenario`, `example_dialogs`, `first_message`, `first_messages`, `scripts`, `token_counts`, `custom_tags`, `avatar`, `creator_name`. The URL slug after the uuid is ignored; the uuid is the key.
+- **Anonymous reads return the summary only.** 34 sampled public bots, 14 with `showdefinition: true`, produced `personality: null`, `scenario: null`, `example_dialogs: null`, `first_message: null`, `scripts: null` and zero token counts. `showdefinition: true` means the creator marked the definition public; it does not mean an unauthenticated request receives it. The reader therefore distinguishes three states: creator hid it (`showdefinition: false`), public but absent from this session (`true` + empty), and present.
+- **The page carries a second copy in its hydration store.** JanitorAI's Vite app executes inline scripts shaped like `window.mbxM.push(JSON.parse("{\"SJ--a:a-a--characterStore\":{\"character\":{…}}}"))`. The argument is a JSON string literal containing a JSON document. `scriptPayloads()` parses it twice, then `deepFindCharacter()` scores every nested object for character fields and the requested id. This copy is what the server rendered for the current session, so it is the right fallback when the API summary and the definition disagree.
+- The hydration store is consumed by the app: `window.mbxM` is a queue object with a `push` method, not an array of records. Read the scripts, not the global.
+- `scripts` is a lorebook reference list. Refs are also collected from `a[href*="/scripts/"]` and from resource timing entries matching `/hampter/script/{id}`. The book itself is `GET /hampter/script/{id}`; the reader accepts `{script}`, `{entries}`, `{entries_list}`, a JSON string or a bare array.
+- The reader tries the page first and falls back to the extension worker when the fetch is CORS-refused or the network refuses. An HTTP status (401/403/404) is treated as a real answer and is not retried through the worker.
 
 ### Emochi API notes
 
@@ -539,7 +642,8 @@ Polybuzz is a Nuxt 3 app. The character is server-rendered into the chat page, s
 
 Character.ai publishes nothing without a session, and the record is only ever fetched by the page's own JavaScript. The extension therefore does not ask for it first — it listens.
 
-- `POST https://neo.character.ai/character/v1/get_character_info` with `{"external_id": "<id>", "lang": "en"}` answers `{"character": {...}, "status": "OK"}`. Anonymous, it answers `{"character": [], "status": "NOT_OK", "error": "bad request"}` — the route is alive and refuses the body, not the caller. The header is `Authorization: Token <hex>`, **not** `Bearer`; the extension sends whatever scheme the page itself used, because the site has shipped both and a rebuilt scheme is a 401.
+- `POST https://neo.character.ai/character/v1/get_character` with `{"external_id": "<id>"}` and the session header is the **owner-scoped** endpoint: it includes the Definition. For a bot the account does not own it answers with an empty `character`; the reader then falls through to `get_character_info`. This is the endpoint to try when you want your own character's definition.
+- `POST https://neo.character.ai/character/v1/get_character_info` with `{"external_id": "<id>", "lang": "en"}` answers `{"character": {...}, "status": "OK"}` for any public character but **strips the Definition**. Anonymous, it answers `{"character": [], "status": "NOT_OK", "error": "bad request"}` — the route is alive and refuses the body, not the caller. The header is `Authorization: Token <hex>`, **not** `Bearer`; the extension sends whatever scheme the page itself used, because the site has shipped both and a rebuilt scheme is a 401.
 - **A cold profile load is server-rendered.** Next's App Router streams the record as `self.__next_f.push([1,"…"])` chunks, so `intercept.js` has no JSON response to re-broadcast and the API is the only live source. `harvest.flightText()` joins the flight chunks and `embeddedObjects()` cuts records out of them, which also gives Crushon a read path that needs no capture at all.
 - `POST https://plus.character.ai/chat/character/info/` and `https://plus.character.ai/chat/character/` are the older endpoints and take the same body. Both answer `403` to an unauthenticated caller. The reader tries all three and takes the first that answers.
 - The record carries `name`, `title`, `description`, `greeting`, `definition`, `avatar_file_name`, `external_id`, `user__username` and `has_definition`. `title` is the tagline and `description` is the About text; the card joins them, tagline first.
@@ -548,6 +652,8 @@ Character.ai publishes nothing without a session, and the record is only ever fe
 - The `definition` field is free text written for the model, not structured dialogue. It goes into the example-dialogue block because that is the only block it can honestly occupy; nothing is invented to fill personality or scenario.
 - A `MAIN`-world script is required: an isolated content script sees a different `window`, so shadowing `fetch` there observes nothing. The captured header goes into `<meta jaix_token>` and each JSON response is re-dispatched as a `CustomEvent("jaix:payload")` with the body as a **string**, because only primitives cross the world boundary.
 - Replays run through `background.js`, which is not subject to CORS, so the request does not need the site's own origin.
+- **Chat export.** `GET https://neo.character.ai/turns/{chatId}/` answers `{turns: [...], meta: {next_token}}`; pass `?next_token=` for the next page. Turns arrive **newest first**. Each turn carries `candidates[]`, and the reply that was on screen is the candidate whose `candidate_id` equals `turn.primary_candidate_id`. `author.is_human` separates the two speakers. The reader caps at 60 pages / 5,000 turns so a looping token cannot hang the tab.
+- The five exported files follow CAI Tools' formats: Tavern JSONL (a metadata line, then `{name, is_user, is_system, is_name, send_date, mes, extra}`), the full JSON archive, Markdown, `<START>` + `{{user}}`/`{{char}}` example dialogue, and text-generation-webui's `{internal, visible, data, data_visible}` pair object. CAI Tools' PDF format is not ported because it depends on jsPDF; Markdown can be printed to PDF by the browser.
 
 ### Crushon.ai API notes
 
@@ -576,6 +682,27 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 - `GET /api/v2/companions/{id}/lorebooks` (bearer) answers `{lorebooks: [...]}`. `GET /api/v2/lorebooks/{id}/chapters` answers `{chapters: [{id, title, text, ...}]}` — the body field is `text`, not `content`. A chapter carries no trigger list, so the reader uses its title as the key and leaves untitled chapters constant.
 - Companion search (`POST /api/v1/search`) refuses an anonymous caller with `403 auth.permission_denied`; post and collection search do not, which is how a companion id can still be found without a session.
 
+### Chub.ai and Venus.chub.ai API notes
+
+- `GET https://api.chub.ai/api/characters/{fullPath|id}?full=true` answers `{node: {...}, permissions}`. `fullPath` is `creator/slug`; the numeric id works too (`/api/characters/161246?full=true`). The character endpoint sends **no** `Access-Control-Allow-Origin`, so the extension worker performs the read under its host permission. A page-context fetch fails with `TypeError: Failed to fetch` even though the API is public.
+- `node.definition` is already Tavern-shaped: `name`, `description`, `personality`, `tavern_personality`, `scenario`, `first_message`, `alternate_greetings`, `example_dialogs`, `system_prompt`, `post_history_instructions`, `avatar`, `embedded_lorebook`, `extensions`. `node.topics` is the tag list; `node.fullPath`'s first segment is the creator; `node.avatar_url` duplicates `definition.avatar`.
+- `tavern_personality` is a short summary beside the long `personality`. It is appended only when it is not already contained in the long text; an exact echo is dropped.
+- `node.related_lorebooks` and `definition.extensions.chub.related_lorebooks` carry lorebook ids. `-1` is a sentinel and is filtered. A linked book can be the same book that is embedded; dedupe is by `keys + content` signature.
+- `GET https://api.chub.ai/api/lorebooks/{id}?full=true` answers `{node: {...}}`; the entries live at `node.definition.embedded_lorebook.entries`. This endpoint **does** send `Access-Control-Allow-Origin: *`, so either transport works. Entries use `keys`, `secondary_keys`, `content`, `comment`/`name`, `enabled`, `constant`, `selective`, `position`, `priority`, `insertion_order`, `case_sensitive`, `extensions`.
+- **Venus.chub.ai** serves the same SPA, asset bundle, paths and API as chub.ai. One reader covers both; the panel labels the source by hostname.
+
+### WyvernChat API notes
+
+- The app host is `https://app.wyvern.chat`. Character URLs are `/profiles/{creator}/characters/{slug}`; the slug can be the internal id (`_Ytaz4tYBerdx7zPzp14VD`) or a creator-chosen name (`eveline`).
+- `GET https://app.wyvern.chat/api/characters/{id}` answers the public character record (no wrapper). It resolves **only the id**; `/api/characters/eveline` answers 404.
+- A custom slug is resolved from the server-rendered page. Next.js streams `self.__next_f.push([1,"…"])` chunks; the character record is an escaped JSON string inside them. Parsing the push argument as JSON, joining the chunks, and brace-matching `{"id":"_…"` gives the record. The same payload is the fallback when the API refuses.
+- The record carries `name`, `avatar`, `description`, `visual_description`, `personality`, `scenario`, `first_mes`, `alternate_greetings`, `greetings[]` (advanced; the `default` entry is the opening message, not an alternate), `mes_example`, `creator_notes`, `pre_history_instructions`, `post_history_instructions`, `character_note`, `system_prompt`, `tags`, `community_tags`, `rating`, `creator.{uid,vanityUrl,displayName}` and `lorebooks[]`.
+- **Field mapping follows Wyvern's own V2 exporter, found in its bundle.** That writer is `{spec:"chara_card_v2", spec_version:"2.0", ...s, data:s}` with `creator_notes: e.creator_notes`, `system_prompt: e.pre_history_instructions`, `post_history_instructions: e.post_history_instructions`, `extensions.depth_prompt: {prompt: e.character_note, depth: 4}`, and `extensions.wyvern` for pronouns/outfits. The editor's labels agree: `pre_history_instructions` is **System Prompt** and `post_history_instructions` is **Final Instructions**.
+- `creator_notes` is the **Long Description**, and creators can put a complete HTML page in it (one sampled record: 13,963 characters of HTML/CSS). It is exported verbatim, as Wyvern's own exporter does; do not treat it as a short note.
+- `GET https://app.wyvern.chat/api/lorebooks/character/{characterId}` answers an array of books. Entries are SillyTavern-shaped: `entry_id`, `keys`, `secondary_keys`, `content`, `comment`, `constant`, `enabled`, `insertion_order`, `position`, `case_sensitive`, `whole_words_only`, `scan_persona`, `key_logic`, `delay`, `sticky`, `cooldown`.
+- `linked_world` was `null` on every sampled record; lorebooks ride in the dedicated endpoint (and sometimes a summary array on the character).
+- Live checks: id-slug `_nmXknhz6VQaUGhQytabCm` (creator `gloomy`) and custom-slug `HippoJr/eveline` both read; the second keeps a 935-character System Prompt.
+
 ### Card PNG and portrait notes
 
 - A card PNG is the character JSON in `tEXt` chunks, base64-encoded: keyword `chara` for spec V2, `ccv3` for spec V3, inserted directly after `IHDR` and before `IDAT`. Each chunk is length (big-endian) + type + payload + CRC32 over type+payload.
@@ -584,6 +711,9 @@ Saucepan is a single-page app whose API is same-origin and proxied at the edge, 
 - A JSON card cannot carry an image by spec, so the portrait rides as a JPEG data URI (~40 KB at 512×512) at `avatar`, `data.avatar` and `data.extensions.avatar`. Keep a public URL there as the fallback when the bytes could not be fetched.
 - Portrait bytes are tried through `background.js` (`jaix:image`) first, then as a `crossOrigin="anonymous"` image. The worker is the only route for `cdn.crushon.ai` (403 without the session cookie); the Emochi and Polybuzz hosts answer `Access-Control-Allow-Origin: *` when the request carries `Origin`, so the direct load covers a dead worker. The worker answers base64 and the content script decodes it with `createImageBitmap`, so the canvas is never tainted.
 - `describePng()` reads a built file back and returns its chunk list and text keywords; the panel prints them after every PNG export so a reader-side failure is distinguishable from a file-side one.
+- **0.12.0 browser check.** A live JanitorAI record with one lorebook entry was built into a card in Chromium: 1.14 MB, chunks `IHDR, tEXt (chara), tEXt (ccv3), IDAT…`, both base64 chunks decoded to V2/V3 JSON with the entry, and `avatarSource` was `cors` (no initials fallback). The unit tests still check CRCs against `zlib.crc32` and the exact chunk order.
+- **Tavo's avatar field.** Tavo's documented character object exposes `avatar`, its importer accepts a full CCv3 wrapper or a bare `data` object, and the 1.9.0 APK contains no `avatar_url` string. The JSON writes the portrait at `avatar`, `data.avatar` and `data.extensions.avatar`; the PNG remains the guaranteed route because the image is the file.
+- `extensions` from a reader are merged into `data.extensions` beside the portrait `avatar`, so Wyvern's `depth_prompt` and future site-specific blocks survive the export.
 
 ---
 

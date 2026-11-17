@@ -190,3 +190,81 @@ test("lorebooksSeparate respects unchecked entries and drops empty books", () =>
   assert.equal(files[0].name, "The Sinners world");
   assert.equal(Object.keys(files[0].json.entries).length, 2);
 });
+
+test("character_book entries keep the full source entry shape", () => {
+  const card = sampleCard();
+  card.lorebooks[0].entries[0] = {
+    keys: ["nichirin"],
+    secondaryKeys: ["blade"],
+    content: "A nichirin blade changes color.",
+    comment: "Blades",
+    constant: true,
+    selective: true,
+    enabled: true,
+    insertionOrder: 4,
+    position: "before_char",
+    priority: 9,
+    probability: 80,
+    caseSensitive: true,
+    extensions: { depth: 3 },
+  };
+  const out = X.tavernCardV2(card, X.toBlocks(card), null);
+  const entry = out.data.character_book.entries[0];
+  assert.deepEqual(entry.keys, ["nichirin"]);
+  assert.deepEqual(entry.secondary_keys, ["blade"]);
+  assert.equal(entry.name, "Blades");
+  assert.equal(entry.constant, true);
+  assert.equal(entry.insertion_order, 4);
+  assert.equal(entry.position, "before_char");
+  assert.equal(entry.priority, 9);
+  assert.equal(entry.probability, 80);
+  assert.equal(entry.case_sensitive, true);
+  assert.deepEqual(entry.extensions, { depth: 3 });
+});
+
+test("creator notes, system prompt and post-history instructions ride into the card", () => {
+  const card = {
+    ...sampleCard(),
+    creatorNotes: "A note from the creator.",
+    systemPrompt: "Write in third person.",
+    postHistoryInstructions: "Keep replies short.",
+    characterVersion: "1.2",
+  };
+  const out = X.tavernCardV2(card, X.toBlocks(card), null);
+  assert.equal(out.data.creator_notes, "A note from the creator.");
+  assert.equal(out.data.system_prompt, "Write in third person.");
+  assert.equal(out.data.post_history_instructions, "Keep replies short.");
+  assert.equal(out.data.character_version, "1.2");
+});
+
+test("worldInfoEntries carry secondary keys and enabled state", () => {
+  const card = sampleCard();
+  card.lorebooks[0].entries[0] = {
+    keys: ["nichirin"],
+    secondaryKeys: ["blade"],
+    content: "A nichirin blade changes color.",
+    comment: "Blades",
+    enabled: false,
+    insertionOrder: 6,
+  };
+  const out = X.lorebookJson(card, X.toBlocks(card), null);
+  assert.deepEqual(out.entries[0].keysecondary, ["blade"]);
+  assert.equal(out.entries[0].disable, true);
+  assert.equal(out.entries[0].order, 6);
+});
+
+test("card extensions ride beside the portrait avatar", () => {
+  const card = {
+    ...sampleCard(),
+    avatarDataUri: "data:image/jpeg;base64,AAAA",
+    extensions: { depth_prompt: { prompt: "Stay in courtly register.", depth: 4 } },
+  };
+  const out = X.tavernCardV2(card, X.toBlocks(card), null);
+  assert.deepEqual(out.data.extensions.depth_prompt, {
+    prompt: "Stay in courtly register.",
+    depth: 4,
+  });
+  assert.equal(out.data.extensions.avatar, "data:image/jpeg;base64,AAAA");
+  const v3 = X.tavernCardV3(card, X.toBlocks(card), null);
+  assert.deepEqual(v3.data.extensions.depth_prompt, out.data.extensions.depth_prompt);
+});

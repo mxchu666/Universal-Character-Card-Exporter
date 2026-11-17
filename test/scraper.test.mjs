@@ -139,3 +139,101 @@ test("readBearer reassembles unpadded base64url session chunks", () => {
     else delete globalThis.document;
   }
 });
+
+test("recordFromText extracts the character from a Next flight payload", () => {
+  const record = {
+    id: "b2d5e572-da25-4156-91e6-c20fbdfe1aa7",
+    name: "Ayato Hiroshi",
+    description: "A cold prince.",
+    personality: "Reserved and calculating.",
+    scenario: "The winter court.",
+    first_message: "You may approach.",
+    example_dialogs: "{{char}}: State your business.",
+    allow_proxy: true,
+    showdefinition: true,
+  };
+  const wrapper = { pageProps: { character: record } };
+  const text = "prefix " + JSON.stringify(wrapper) + " suffix";
+  const found = S.recordFromText(text, record.id);
+  assert.equal(found.name, "Ayato Hiroshi");
+  assert.equal(found.personality, "Reserved and calculating.");
+  assert.equal(found.first_message, "You may approach.");
+});
+
+test("recordFromText ignores a name-only object", () => {
+  const text = '{"name":"Index","items":[1,2,3]}';
+  assert.equal(S.recordFromText(text, "abc"), null);
+});
+
+test("normalizeCharacter records whether the definition was published", () => {
+  const hidden = S.normalizeCharacter({
+    id: "c1",
+    name: "Aveline",
+    description: "A royal historian.",
+    showdefinition: false,
+  });
+  assert.equal(hidden.definitionMeta.showdefinition, false);
+  assert.equal(hidden.definitionMeta.hasDefinition, false);
+
+  const shown = S.normalizeCharacter({
+    id: "c2",
+    name: "Aveline",
+    description: "A royal historian.",
+    personality: "Quiet.",
+    showdefinition: true,
+  });
+  assert.equal(shown.definitionMeta.showdefinition, true);
+  assert.equal(shown.definitionMeta.hasDefinition, true);
+  assert.equal(shown.definitionMeta.source, "api");
+});
+
+test("normalizeEntry accepts the legacy and world-info key shapes", () => {
+  const entry = S.normalizeEntry({
+    key: [" archive ", "archive"],
+    keysecondary: ["records"],
+    entry: "The west archive is locked after dusk.",
+    title: "Archive",
+    constant: "true",
+    enabled: false,
+    insertion_order: 4,
+    whole_words_only: true,
+  }, "storyweaver");
+  assert.deepEqual(entry.keys, ["archive"]);
+  assert.deepEqual(entry.secondaryKeys, ["records"]);
+  assert.equal(entry.content, "The west archive is locked after dusk.");
+  assert.equal(entry.comment, "Archive");
+  assert.equal(entry.constant, true);
+  assert.equal(entry.enabled, false);
+  assert.equal(entry.selective, false);
+  assert.equal(entry.insertionOrder, 4);
+  assert.equal(entry.wholeWords, true);
+});
+
+test("scriptPayloads unwinds the double-encoded JanitorAI hydration store", () => {
+  const record = {
+    id: "b2d5e572-da25-4156-91e6-c20fbdfe1aa7",
+    name: "Ayato Hiroshi",
+    description: "A cold prince.",
+    personality: "Reserved.",
+    scenario: "The winter court.",
+    first_message: "You may approach.",
+    example_dialogs: "{{char}}: State your business.",
+    allow_proxy: true,
+  };
+  const store = { "SJ--a:a-a--characterStore": { character: record } };
+  const literal = JSON.stringify(JSON.stringify(store));
+  const script = { type: "", textContent: "window.mbxM.push(JSON.parse(" + literal + "));" };
+  const oldDocument = Object.hasOwn(globalThis, "document") ? globalThis.document : undefined;
+  globalThis.document = {
+    querySelectorAll: (selector) => (selector === "script" ? [script] : []),
+  };
+  try {
+    const payloads = S.scriptPayloads();
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0]["SJ--a:a-a--characterStore"].character.name, "Ayato Hiroshi");
+    assert.equal(payloads[0]["SJ--a:a-a--characterStore"].character.personality, "Reserved.");
+  } finally {
+    if (oldDocument === undefined) delete globalThis.document;
+    else globalThis.document = oldDocument;
+  }
+});
